@@ -15,8 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.example.smartassistant.Audio.AudioModule
-import com.example.smartassistant.Audio.PhoneAudioModule
+import com.example.smartassistant.audio.AudioModule
+import com.example.smartassistant.audio.PhoneAudioModule
 import com.example.smartassistant.camera.CameraModule
 import com.example.smartassistant.camera.PhoneCameraModule
 import com.example.smartassistant.ui.theme.SmartassistantTheme

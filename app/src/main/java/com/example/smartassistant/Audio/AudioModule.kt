@@ -1,5 +1,4 @@
-package com.example.smartassistant.Audio
-
+package com.example.smartassistant.audio
 
 import android.content.Context
 import com.example.smartassistant.core.SpeakPriority
