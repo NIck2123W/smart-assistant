@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.smartassistant.power.PowerSaverManager
 import com.example.smartassistant.Audio.AudioModule
 import com.example.smartassistant.Audio.PhoneAudioModule
 import com.example.smartassistant.camera.CameraModule
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var cameraModule: CameraModule
     private lateinit var audioModule: AudioModule
     private lateinit var detectionModule: DetectionModule
+    private lateinit var powerSaverManager: PowerSaverManager
     private var lastSpokenTime = 0L
 
     // 用來裝相機畫面的容器
@@ -48,16 +50,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // 初始化我們分層寫好的模組
+        powerSaverManager = PowerSaverManager(this)
         cameraModule = PhoneCameraModule(this)
         audioModule = PhoneAudioModule(this)
 
         // 🧠 核心 AI 邏輯：過濾掉人(person)，只報信心度大於 0.5 的物品，且每 5 秒最多講一次
         detectionModule = MediaPipeDetectionModule { results ->
+            val shouldReducePerf = powerSaverManager.shouldReducePerformance()
             val otherObjects = results.filter { it.label != "person" }
             val target = otherObjects.maxByOrNull { it.confidence } ?: results.maxByOrNull { it.confidence }
 
             target?.let {
                 val now = System.currentTimeMillis()
+                val confidenceThreshold = if (shouldReducePerf) 0.7f else 0.5f
                 if (it.confidence > 0.5f && now - lastSpokenTime > 5000) {
                     audioModule.speak("看到 ${it.label}")
                     lastSpokenTime = now
