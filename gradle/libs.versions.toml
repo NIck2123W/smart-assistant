@@ -8,6 +8,7 @@ composeBom = "2026.03.01"
 camerax = "1.6.0"
 materialIconsExtended = "1.6.7"
 mediapipe = "0.20230731"
+mapsCompose = "6.4.1"
 
 [libraries]
 # Core and Compose UI
@@ -32,6 +33,7 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 
 # MediaPipe AI
 mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipe" }
+maps-compose = { group = "com.google.maps.android", name = "maps-compose", version.ref = "mapsCompose" }
 
 [plugins]
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

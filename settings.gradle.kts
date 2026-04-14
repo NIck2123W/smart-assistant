@@ -7,13 +7,11 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
+        google()  // ← 确保这行存在
         mavenCentral()
     }
 }
-
 // ⭐ 自動處理 JDK（避免 Java 找不到）
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
