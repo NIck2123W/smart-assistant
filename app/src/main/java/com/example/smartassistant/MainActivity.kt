@@ -42,87 +42,65 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    // 模組宣告
     private lateinit var cameraModule: CameraModule
     private lateinit var audioModule: AudioModule
     private lateinit var detectionModule: DetectionModule
     private lateinit var powerSaverManager: PowerSaverManager
-
-    // 統一變數名稱為 navViewModel
     private val navViewModel: NavigationViewModel by viewModels()
 
-    // Google 登入相關
+    // Google Login 宣告
     private lateinit var gso: GoogleSignInOptions
     private lateinit var googleSignInClient: GoogleSignInClient
 
     private var lastSpokenTime = 0L
     private var previewView: PreviewView? = null
-    private var calendarUiCallback: ((String, List<CourseEvent>) -> Unit)? = null
 
-    // 權限請求清單
-    private val requiredPermissions = mutableListOf(
-        Manifest.permission.CAMERA,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION
-    ).apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }.toTypedArray()
-
+    // 權限請求
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        if (permissions[Manifest.permission.CAMERA] == true &&
-            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+        if (permissions.all { it.value }) {
             startSystem()
         } else {
-            Toast.makeText(this, "需要相機與定位權限", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "權限不足，部分功能無法運作", Toast.LENGTH_LONG).show()
         }
     }
 
-    // 處理 Google 登入回傳
-    private val signInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            Toast.makeText(this, "登入成功", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val startAuthorizationIntent = registerForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            Toast.makeText(this, "Google 授權成功", Toast.LENGTH_SHORT).show()
-        }
-    }
+    // Google 授權與登入回呼
+    private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+    private val startAuthorizationIntent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 初始化 Google 登入選項
-        gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(com.google.android.gms.common.api.Scope(Scopes.DRIVE_APPFOLDER))
-            .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/calendar"))
-            .build()
-        googleSignInClient = GoogleSignIn.getClient(this, gso)
-
+        // 1. 初始化基礎模組
         powerSaverManager = PowerSaverManager(this)
         cameraModule = PhoneCameraModule(this)
         audioModule = PhoneAudioModule(this)
 
+        // 2. 初始化 EfficientDet 辨識模組 (帶入語音回饋邏輯)
         detectionModule = MediaPipeDetectionModule { results ->
             if (powerSaverManager.shouldReducePerformance()) return@MediaPipeDetectionModule
+
+            // 找出信心度最高的物品
             val target = results.maxByOrNull { it.confidence }
             target?.let {
                 val now = System.currentTimeMillis()
+                // 信心度 > 50% 且距離上次說話超過 5 秒才發聲
                 if (it.confidence > 0.5f && now - lastSpokenTime > 5000) {
                     audioModule.speak("前方有 ${it.label}")
                     lastSpokenTime = now
                 }
             }
         }
+
+        // 3. 設定 Google 登入 (行事曆用)
+        gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/calendar"))
+            .build()
+        googleSignInClient = GoogleSignIn.getClient(this, gso)
 
         setContent {
             SmartassistantTheme {
@@ -133,123 +111,106 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
-                                icon = { Text("👁️") },
-                                label = { Text("助理/導航") },
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 }
+                                icon = { Text("👁️") }, label = { Text("導航/辨識") },
+                                selected = selectedTab == 0, onClick = { selectedTab = 0 }
                             )
                             NavigationBarItem(
-                                icon = { Text("📅") },
-                                label = { Text("行事曆") },
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 }
+                                icon = { Text("📅") }, label = { Text("行事曆") },
+                                selected = selectedTab == 1, onClick = { selectedTab = 1 }
                             )
                         }
                     }
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
 
-                        // 導航與助理模式 (Tab 0)
+                        // 分頁 0: 視覺導航 + 物件辨識
                         if (selectedTab == 0) {
-                            // 相機畫面底圖
+                            // 底層：相機畫面
                             AndroidView(
                                 factory = { ctx ->
                                     PreviewView(ctx).apply {
                                         this@MainActivity.previewView = this
-                                        startSystem()
+                                        startSystem() // 啟動相機與辨識
                                     }
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
 
+                            // 上層：根據是否正在導航切換 UI
                             if (isNavigating) {
-                                NavHudScreen(navViewModel)
+                                NavHudScreen(navViewModel) // 顯示導航箭頭與小地圖
                             } else {
-                                AssistantAndNavView()
+                                AssistantInputView() // 顯示目的地搜尋框
                             }
                         }
 
-                        // 行事曆模式 (Tab 1)
+                        // 分頁 1: Google 行事曆
                         if (selectedTab == 1) {
                             CalendarRealScreen(
-                                onRegisterCallback = { calendarUiCallback = it },
+                                onRegisterCallback = { /* 處理回呼 */ },
                                 onSyncClick = { requestCalendarAuth() },
-                                onCreateClick = { t, l, s, e -> requestCalendarAuth() }
+                                onCreateClick = { _, _, _, _ -> requestCalendarAuth() }
                             )
                         }
                     }
                 }
             }
         }
-        requestPermissionLauncher.launch(requiredPermissions)
+
+        // 要求權限
+        val permissions = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        requestPermissionLauncher.launch(permissions.toTypedArray())
     }
 
     @Composable
-    private fun AssistantAndNavView() {
-        var addressInput by remember { mutableStateOf("") }
-        val locationService = remember { LocationService(this@MainActivity) }
+    fun AssistantInputView() {
+        var address by remember { mutableStateOf("") }
         val scope = rememberCoroutineScope()
+        val locationService = remember { LocationService(this) }
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(16.dp).padding(top = 40.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-            ) {
+        Column(modifier = Modifier.padding(16.dp).padding(top = 32.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     OutlinedTextField(
-                        value = addressInput,
-                        onValueChange = { addressInput = it },
-                        label = { Text("要去哪裡？") },
-                        modifier = Modifier.fillMaxWidth()
+                        value = address, onValueChange = { address = it },
+                        label = { Text("請輸入目的地") }, modifier = Modifier.fillMaxWidth()
                     )
                     Button(
                         onClick = {
                             scope.launch {
-                                val target = locationService.getCoordsFromAddress(addressInput)
+                                val target = locationService.getCoordsFromAddress(address)
                                 val current = locationService.getCurrentLocation()
-                                val key = getGoogleMapsApiKey()
                                 if (target != null && current != null) {
-                                    navViewModel.startNavigation(current, target, addressInput, key)
+                                    navViewModel.startNavigation(current, target, address, getGoogleMapsApiKey())
                                 } else {
-                                    Toast.makeText(this@MainActivity, "地址解析失敗", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@MainActivity, "找不到位置", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    ) {
-                        Text("開始導航")
-                    }
+                    ) { Text("開啟視覺導航") }
                 }
             }
         }
     }
 
     private fun requestCalendarAuth() {
-        // 先執行 Google 登入
         val intent = googleSignInClient.signInIntent
         signInLauncher.launch(intent)
 
-        // 再執行 Identity 授權
-        val requestedScopes = listOf(
-            com.google.android.gms.common.api.Scope(Scopes.OPEN_ID),
-            com.google.android.gms.common.api.Scope(Scopes.EMAIL),
-            com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/calendar")
-        )
+        val requestedScopes = listOf(com.google.android.gms.common.api.Scope(Scopes.EMAIL), com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/calendar"))
         val authRequest = AuthorizationRequest.builder().setRequestedScopes(requestedScopes).build()
-        Identity.getAuthorizationClient(this).authorize(authRequest)
-            .addOnSuccessListener { result ->
-                if (result.hasResolution()) {
-                    val sender = result.pendingIntent!!.intentSender
-                    startAuthorizationIntent.launch(IntentSenderRequest.Builder(sender).build())
-                }
+        Identity.getAuthorizationClient(this).authorize(authRequest).addOnSuccessListener { result ->
+            if (result.hasResolution()) {
+                startAuthorizationIntent.launch(IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build())
             }
+        }
     }
 
     private fun getGoogleMapsApiKey(): String {
-        return try {
-            val ai = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-            ai.metaData?.getString("com.google.android.geo.API_KEY") ?: ""
-        } catch (e: Exception) { "" }
+        val ai = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+        return ai.metaData?.getString("com.google.android.geo.API_KEY") ?: ""
     }
 
     private fun startSystem() {
